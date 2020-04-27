@@ -1,0 +1,7 @@
+.vs
+*.d
+*.o
+*.map
+*.mk
+Makefile
+*.componentinfo.xml
