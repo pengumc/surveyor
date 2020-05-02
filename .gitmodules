@@ -1,0 +1,3 @@
+[submodule "avr_smbus_slave"]
+	path = software/atmega328p/surveyor/avr_smbus_slave
+	url = ../avr_smbus_slave

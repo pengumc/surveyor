@@ -22,9 +22,10 @@ void smbus_slave_command_hook(uint8_t cmd)
 
 int main(void)
 {
+	uint8_t comms_mem[10];
 	smbus_slave_t my_smbus_slave;
 	global_smbus_slave = &my_smbus_slave;
-	smbus_slave_init(0x48, 56, 0b00); // baudrate 62.5 kHz
+	smbus_slave_init(0x48, 56, 0b00, comms_mem, comms_mem); // baudrate 62.5 kHz
 	
 	TCCR0A = (1 << WGM01); // CTC mode
 	TCCR0B = (1 << CS02) | (1 << CS00); // clk / 1024 (8e6 / 1024 = 7812.5 Hz)
