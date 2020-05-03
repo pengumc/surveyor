@@ -24,7 +24,7 @@ void smbus_slave_block_write_done()
 	// hex commands:
 	// track A forward/backward: 0x04 0x08
 	// track B forward/backward: 0x10 0x20
-	PORTD = comms_mem[6] & ((1 << PIND2) | (1 << PIND3) | (1 << PIND4) | (1 << PIND5));
+	PORTD = comms_mem[6] & ((1 << PIND2) | (1 << PIND3) | (1 << PIND4) | (1 << PIND5) | (1 << PIND6));
 	
 }
 
@@ -41,7 +41,7 @@ int main(void)
 	smbus_slave_init(0x48, 56, 0b00, comms_mem, comms_mem); // baudrate 62.5 kHz
 	
 	// Motor control outputs
-	DDRD = (1 << PIND2) | (1 << PIND3) | (1 << PIND4) | (1 << PIND5);
+	DDRD = (1 << PIND2) | (1 << PIND3) | (1 << PIND4) | (1 << PIND5) | (1 << PIND6);
 
 	// ADC setup
 	// max clock is 200 kHz
@@ -64,9 +64,9 @@ ISR(TIMER0_COMPA_vect)
 ISR(ADC_vect)
 {
 	// store result
-	comms_mem[adc_mux++] = ADCL;
-	comms_mem[adc_mux++] = ADCH;
-	if (adc_mux >= ADC_COUNT)
+	comms_mem[adc_mux<<1] = ADCL;
+	comms_mem[(adc_mux<<1)|1] = ADCH;
+	if (++adc_mux >= ADC_COUNT)
 	{
 		adc_mux = 0;
 	}
