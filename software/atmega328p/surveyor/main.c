@@ -7,6 +7,7 @@
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
+#include <avr/wdt.h>
 
 #include "smbus_slave.h"
 
@@ -20,6 +21,12 @@
 static uint8_t adc_mux;
 static uint8_t comms_mem[10];
 static uint8_t pwm_count;
+
+void smbus_slave_command_hook(uint8_t cmd)
+{
+	PORTD &= ~(1<<PIND6);
+	wdt_reset();
+}
 
 void smbus_slave_block_write_done()
 {
@@ -43,6 +50,9 @@ int main(void)
 	// Motor control outputs
 	DDRD = (1 << PIND2) | (1 << PIND3) | (1 << PIND4) | (1 << PIND5) | (1 << PIND6);
 
+	// error led and watchdog
+	PORTD = (1 << PIND6);
+	wdt_enable(WDTO_500MS);
 	// ADC setup
 	// max clock is 200 kHz
 	adc_mux = 0;
@@ -53,80 +63,78 @@ int main(void)
 	// pwm setup
 	pwm_count = 0;
 	TCCR0A = (1 << WGM01); // CTC mode
-	TCCR0B = (0 << CS02) | (1 << CS01) | (1 << CS00); // clk / 1 = 8e6
+	TCCR0B = (0 << CS02) | (1 << CS01) | (1 << CS00); // clk / 64 = 125 kHz
 	TIMSK0 = (1 << OCIE0A); // comp A interrupt
 	OCR0A = 0x08;
 
 	sei();
     while (1) 
     {
+		// comms_mem[6]
+		//	bit0 = right track backward_ena
+		//  bit1 = left track backward_ena
+
+		// right track
+		if (comms_mem[6] & 0x01)
+		{
+			// forward
+			if (comms_mem[7] > pwm_count)
+			{
+				PORTD &= ~(1 << PIND4);
+				PORTD |= (1 << PIND5);
+			}
+			else
+			{
+				PORTD &= ~((1 << PIND4) | (1<< PIND5));
+			}
+		}
+		else
+		{
+			// backward
+			if (comms_mem[7] > pwm_count)
+			{
+				PORTD &= ~(1 << PIND5);
+				PORTD |= (1 << PIND4);
+			}
+			else
+			{
+				PORTD &= ~((1 << PIND4) | (1<< PIND5));
+			}
+		}
+
+		// left track
+		if (comms_mem[6] & 0x02)
+		{
+			// forward
+			if (comms_mem[8] > pwm_count)
+			{
+				PORTD &= ~(1 << PIND2);
+				PORTD |= (1 << PIND3);
+			}
+			else
+			{
+				PORTD &= ~((1 << PIND2) | (1<< PIND3));
+			}
+		}
+		else
+		{
+			// backward
+			if (comms_mem[8] > pwm_count)
+			{
+				PORTD &= ~(1 << PIND3);
+				PORTD |= (1 << PIND2);
+			}
+			else
+			{
+				PORTD &= ~((1 << PIND2) | (1<< PIND3));
+			}
+		}
     }
 }
 
 ISR(TIMER0_COMPA_vect)
 {
 	pwm_count = (pwm_count+1) & PWM_COUNT_MSK; // counting 0..63
-	//uint8_t d_out = PORTD;
-	// 0x30 .. 0x40 seem to work
-	// comms_mem[6]
-	//	bit0 = right track backward_ena
-	//  bit1 = left track backward_ena
-
-	// right track
-	if (comms_mem[6] & 0x01)
-	{
-		// forward
-		if (comms_mem[7] > pwm_count)
-		{
-			PORTD &= ~(1 << PIND4);
-			PORTD |= (1 << PIND5);
-		}
-		else
-		{
-			PORTD &= ~((1 << PIND4) | (1<< PIND5));
-		}
-	}
-	else
-	{
-		// backward
-		if (comms_mem[7] > pwm_count)
-		{
-			PORTD &= ~(1 << PIND5);
-			PORTD |= (1 << PIND4);
-		}
-		else
-		{
-			PORTD &= ~((1 << PIND4) | (1<< PIND5));
-		}
-	}
-
-	// left track
-	if (comms_mem[6] & 0x02)
-	{
-		// forward
-		if (comms_mem[8] > pwm_count)
-		{
-			PORTD &= ~(1 << PIND2);
-			PORTD |= (1 << PIND3);
-		}
-		else
-		{
-			PORTD &= ~((1 << PIND2) | (1<< PIND3));
-		}
-	}
-	else
-	{
-		// backward
-		if (comms_mem[8] > pwm_count)
-		{
-			PORTD &= ~(1 << PIND3);
-			PORTD |= (1 << PIND2);
-		}
-		else
-		{
-			PORTD &= ~((1 << PIND2) | (1<< PIND3));
-		}
-	}
 }
 
 ISR(ADC_vect)
