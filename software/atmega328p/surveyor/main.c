@@ -15,16 +15,14 @@
 // selected: 64 for a ADC clock of 125 kHz
 #define ADC_PRESCALER ((1 << ADPS2) | (1 << ADPS1) | (0 << ADPS0))
 #define ADC_COUNT (3)
+#define PWM_COUNT_MSK (0x3F)
 
 static uint8_t adc_mux;
 static uint8_t comms_mem[10];
+static uint8_t pwm_count;
 
 void smbus_slave_block_write_done()
 {
-	// hex commands:
-	// track A forward/backward: 0x04 0x08
-	// track B forward/backward: 0x10 0x20
-	PORTD = comms_mem[6] & ((1 << PIND2) | (1 << PIND3) | (1 << PIND4) | (1 << PIND5) | (1 << PIND6));
 	
 }
 
@@ -38,6 +36,8 @@ int main(void)
 	comms_mem[4] = 0; // ADC 2 result L
 	comms_mem[5] = 0; // ADC 2 result H
 	comms_mem[6] = 0; // last received cmd
+	comms_mem[7] = 0; // left speed
+	comms_mem[8] = 0; // right speed
 	smbus_slave_init(0x48, 56, 0b00, comms_mem, comms_mem); // baudrate 62.5 kHz
 	
 	// Motor control outputs
@@ -49,6 +49,14 @@ int main(void)
 	ADMUX = (1 << REFS0) | adc_mux;
 	ADCSRA = (1 << ADEN) | (1 << ADSC) | (0 << ADATE) | (1 << ADIE) | ADC_PRESCALER;
 	ADCSRB = (1 << ADC0D) | (1 << ADC1D) | (1 << ADC2D);
+
+	// pwm setup
+	pwm_count = 0;
+	TCCR0A = (1 << WGM01); // CTC mode
+	TCCR0B = (0 << CS02) | (1 << CS01) | (1 << CS00); // clk / 1 = 8e6
+	TIMSK0 = (1 << OCIE0A); // comp A interrupt
+	OCR0A = 0x08;
+
 	sei();
     while (1) 
     {
@@ -57,8 +65,68 @@ int main(void)
 
 ISR(TIMER0_COMPA_vect)
 {
-	
+	pwm_count = (pwm_count+1) & PWM_COUNT_MSK; // counting 0..63
+	//uint8_t d_out = PORTD;
+	// 0x30 .. 0x40 seem to work
+	// comms_mem[6]
+	//	bit0 = right track backward_ena
+	//  bit1 = left track backward_ena
 
+	// right track
+	if (comms_mem[6] & 0x01)
+	{
+		// forward
+		if (comms_mem[7] > pwm_count)
+		{
+			PORTD &= ~(1 << PIND4);
+			PORTD |= (1 << PIND5);
+		}
+		else
+		{
+			PORTD &= ~((1 << PIND4) | (1<< PIND5));
+		}
+	}
+	else
+	{
+		// backward
+		if (comms_mem[7] > pwm_count)
+		{
+			PORTD &= ~(1 << PIND5);
+			PORTD |= (1 << PIND4);
+		}
+		else
+		{
+			PORTD &= ~((1 << PIND4) | (1<< PIND5));
+		}
+	}
+
+	// left track
+	if (comms_mem[6] & 0x02)
+	{
+		// forward
+		if (comms_mem[8] > pwm_count)
+		{
+			PORTD &= ~(1 << PIND2);
+			PORTD |= (1 << PIND3);
+		}
+		else
+		{
+			PORTD &= ~((1 << PIND2) | (1<< PIND3));
+		}
+	}
+	else
+	{
+		// backward
+		if (comms_mem[8] > pwm_count)
+		{
+			PORTD &= ~(1 << PIND3);
+			PORTD |= (1 << PIND2);
+		}
+		else
+		{
+			PORTD &= ~((1 << PIND2) | (1<< PIND3));
+		}
+	}
 }
 
 ISR(ADC_vect)
