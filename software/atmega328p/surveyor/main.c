@@ -11,10 +11,10 @@
 
 #include "smbus_slave.h"
 
-// Max ADC clock is 200 kHz. We're running on 8 MHz
-// So a minimum of 40 is needed.
-// selected: 64 for a ADC clock of 125 kHz
-#define ADC_PRESCALER ((1 << ADPS2) | (1 << ADPS1) | (0 << ADPS0))
+// Max ADC clock is 200 kHz. We're running on 16 MHz
+// So a minimum of 80 is needed.
+// selected: 128 for a ADC clock of 125 kHz
+#define ADC_PRESCALER ((1 << ADPS2) | (1 << ADPS1) | (1 << ADPS0))
 #define ADC_COUNT (4)
 #define ADC_SAMPLE_COUNT (64)
 #define PWM_COUNT_MSK (0x3F)
@@ -89,10 +89,14 @@ int main(void)
 	comms_mem[9] = 0; // track directions
 	comms_mem[10] = 0; // right speed
 	comms_mem[11] = 0; // left speed
-	smbus_slave_init(0x48, 56, 0b00, comms_mem, comms_mem); // baudrate 62.5 kHz
+	comms_mem[12] = 128; // servo control
+	smbus_slave_init(0x48, 120, 0b00, comms_mem, comms_mem); // baudrate 62.5 kHz
 	
-	// Motor control outputs
-	DDRD = (1 << PIND2) | (1 << PIND3) | (1 << PIND4) | (1 << PIND5) | (1 << PIND6);
+	// 2..5 = motor control
+	// 6 = led
+	// 7 = servo control 
+	
+	DDRD = (1 << PIND2) | (1 << PIND3) | (1 << PIND4) | (1 << PIND5) | (1 << PIND6) | (1 << PIND7);
 
 	// error led and watchdog
 	PORTD = (1 << PIND6);
@@ -112,18 +116,29 @@ int main(void)
 	ADCSRA = (1 << ADEN) | (1 << ADSC) | (0 << ADATE) | (0 << ADIE) | ADC_PRESCALER;
 	ADCSRB = (1 << ADC0D) | (1 << ADC1D) | (1 << ADC2D);
 
-	// pwm setup
+	// Motor PWM setup
 	pwm_count = 0;
 	TCCR0A = (1 << WGM01); // CTC mode
 	TCCR0B = (0 << CS02) | (1 << CS01) | (1 << CS00); // clk / 64 = 125 kHz
 	TIMSK0 = (1 << OCIE0A); // comp A interrupt
 	OCR0A = 0x08;
 
+	// servo control timer setup
+	// run timer with clk div 1024 till overflow, set B1 high
+	// then switch to CTC mode and clk div 256 so we can control up time 
+	// with OCR2A. On compare match, clear B1 and reset to clk div 1024 and overflow
+	DDRB |= (1 << PINB1);
+	TCCR2A = 0;
+	OCR2A = comms_mem[12];
+	TCCR2B = (1 << CS22) | (1 << CS21) | (1 << CS20);
+	TIMSK2 = (1 << TOIE2);
 	sei();
     while (1) 
     {
+
 		//wdt_reset();
 
+		
 		if (ADCSRA & (1 << ADIF))
 		{
 			adc_update();
@@ -190,4 +205,23 @@ int main(void)
 ISR(TIMER0_COMPA_vect, ISR_NOBLOCK)
 {
 	pwm_count = (pwm_count+1) & PWM_COUNT_MSK; // counting 0..63
+}
+
+ISR(TIMER2_OVF_vect)
+{
+	PORTB |= (1 << PINB1);
+	TCCR2B = 0; // turn off timer
+	OCR2A = comms_mem[12];
+	TCCR2A = (1 << WGM21);
+	TIFR2 = 0xFF;
+	TIMSK2 = (1 << OCIE2A);
+	TCCR2B = (1 << CS22) | (1 << CS21) | (0 << CS20);
+}
+
+ISR(TIMER2_COMPA_vect)
+{
+	PORTB &= ~(1 << PINB1);
+	TIMSK2 = (1 << TOIE2);
+	TCCR2A = 0;
+	TCCR2B = (1 << CS22) | (1 << CS21) | (1 << CS20);
 }
