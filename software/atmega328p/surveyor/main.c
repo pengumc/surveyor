@@ -89,7 +89,10 @@ int main(void)
 	comms_mem[9] = 0; // track directions
 	comms_mem[10] = 0; // right speed
 	comms_mem[11] = 0; // left speed
-	comms_mem[12] = 128; // servo control
+	comms_mem[12] = 90; // servo control
+	comms_mem[13] = 0; // control register. bit0 = HC-SR04 trigger
+	comms_mem[14] = 0; // last ICP1L
+	comms_mem[15] = 0; // last ICP1H
 	smbus_slave_init(0x48, 120, 0b00, comms_mem, comms_mem); // baudrate 62.5 kHz
 	
 	// 2..5 = motor control
@@ -132,12 +135,30 @@ int main(void)
 	OCR2A = comms_mem[12];
 	TCCR2B = (1 << CS22) | (1 << CS21) | (1 << CS20);
 	TIMSK2 = (1 << TOIE2);
+
+	// Ultrasonic timer setup
+	// timer 1. input capture on PB0
+	// clk div 8. gives us 32 ms max
+	TCCR1A = 0;
+	TCCR1B = (1 << ICES1) | (0 << CS12) | (1 << CS11) | (0 << CS10);
+	
+	DDRB &= ~(0<< PINB0);
+	TIMSK1 = (1 << ICIE1);
+
 	sei();
     while (1) 
     {
+		
+		wdt_reset();
 
-		//wdt_reset();
-
+		if (comms_mem[13] & 0x01)
+		{
+			PORTD |= (1 << PIND7);
+		}
+		else
+		{
+			PORTD &= ~(1 << PIND7);
+		}
 		
 		if (ADCSRA & (1 << ADIF))
 		{
@@ -224,4 +245,26 @@ ISR(TIMER2_COMPA_vect)
 	TIMSK2 = (1 << TOIE2);
 	TCCR2A = 0;
 	TCCR2B = (1 << CS22) | (1 << CS21) | (1 << CS20);
+}
+
+ISR(TIMER1_CAPT_vect)
+{
+	if (TCCR1B & (1 <<  ICES1))
+	{
+		// captured rising edge of echo response
+		TCNT1 = 0;
+		TCCR1B &= ~(1 << ICES1);
+	}
+	else
+	{
+		// falling edge capture
+		*((uint16_t*)&comms_mem[14]) = ICR1;
+		TCCR1B |= (1 << ICES1);
+	}
+}
+
+ISR(TIMER1_OVF_vect)
+{
+	// timer overflown. reset to rising edge capture
+	TCCR1B |= (1 << ICES1);
 }
